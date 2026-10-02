@@ -1,0 +1,49 @@
+name: Build Unsigned iOS App
+
+on:
+  workflow_dispatch: # Ermöglicht es dir, den Build jederzeit manuell per Knopfdruck zu starten
+
+jobs:
+  build:
+    runs-on: macos-14 # Nutzt einen virtuellen Mac von GitHub mit installiertem Xcode
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4 # Lädt den OpenMonitor Code in die Pipeline
+
+      - name: Set up Xcode Version
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app # Setzt die passende Xcode Version
+
+      - name: Code-Signing deaktivieren (für Windows-Sideloading)
+        run: |
+          # Deaktiviert den Zwang für offizielle Apple-Zertifikate, da AltStore dies später übernimmt
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' *.xcodeproj/project.pbxproj || true
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' *.xcodeproj/project.pbxproj || true
+
+      - name: Build Archive
+        run: |
+          # Kompiliert das Projekt in ein iOS-Archiv (.xcarchive)
+          xcodebuild clean archive \
+            -project OpenMonitor.xcodeproj \
+            -scheme OpenMonitor \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/OpenMonitor.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+
+      - name: Erstelle unsignierte IPA-Struktur
+        run: |
+          # Simuliert eine .ipa-Datei, indem die kompilierte App in einen "Payload"-Ordner gepackt und gezippt wird
+          mkdir -p $RUNNER_TEMP/Payload
+          cp -r $RUNNER_TEMP/OpenMonitor.xcarchive/Products/Applications/OpenMonitor.app $RUNNER_TEMP/Payload/
+          cd $RUNNER_TEMP
+          zip -r OpenMonitor.ipa Payload
+
+      - name: Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenMonitor-Unsigned-IPA
+          path: ${{ runner.temp }}/../OpenMonitor.ipa # Lädt die fertige Datei auf GitHub hoch, damit du sie herunterladen kannst
